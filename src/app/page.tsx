@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import { useForm, useFieldArray, useWatch, type Path } from "react-hook-form";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Package,
+  AlertTriangle, // Icon untuk warning
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -82,16 +83,47 @@ export default function InventoryPage() {
     name: "items",
   });
 
+  // Pantau perubahan pada array items
   const watchedItems = useWatch({
     control: form.control,
     name: "items",
   });
 
+  // --- LOGIC DETEKSI DUPLIKAT (NEW) ---
+  const duplicateIndices = useMemo(() => {
+    const indices = new Set<number>();
+    const nameMap = new Map<string, number[]>();
+
+    watchedItems?.forEach((item, index) => {
+      // Normalisasi nama (lowercase & trim) agar "Knee 1/2" dan "knee 1/2 " dianggap sama
+      const name = item.name?.trim().toLowerCase();
+      if (name) {
+        if (!nameMap.has(name)) {
+          nameMap.set(name, []);
+        }
+        nameMap.get(name)?.push(index);
+      }
+    });
+
+    // Jika ada nama yang muncul lebih dari 1 kali, tandai semua index-nya
+    nameMap.forEach((indexes) => {
+      if (indexes.length > 1) {
+        indexes.forEach((idx) => indices.add(idx));
+      }
+    });
+
+    return indices;
+  }, [watchedItems]);
+
+  const hasDuplicates = duplicateIndices.size > 0;
   const hasCheckingItems =
     watchedItems?.some((item) => item.status === "checking") ?? false;
 
+  // Block tombol jika ada Checking ATAU ada Duplikat
+  const isSubmitDisabled = hasCheckingItems || hasDuplicates;
+
   const handleGenerateWA = (data: InventoryFormValues) => {
-    if (hasCheckingItems) return;
+    if (isSubmitDisabled) return;
 
     const validItems = data.items.filter(
       (item) => item.name && item.name.trim() !== "",
@@ -113,7 +145,7 @@ export default function InventoryPage() {
 
       text += `*${index + 1}. ${item.name}*\n`;
       text += `   📦 Dus: ${item.boxes} ${qtyInfo}\n`;
-      text += `   ✨ Ecer: ${item.units || "-"}\n\n`;
+      text += `   ⚙️ PCS: ${item.units || "-"}\n\n`;
     });
 
     window.open(
@@ -136,14 +168,12 @@ export default function InventoryPage() {
     index: number,
   ) => {
     const value = e.target.value.toLowerCase();
-
     form.setValue(`items.${index}.name`, e.target.value);
 
     if (value.length > 1) {
       const results = PRODUCT_LIST.filter((item) =>
         item.name.toLowerCase().includes(value),
       ).slice(0, 20);
-
       setFilteredProducts(results);
     } else {
       setFilteredProducts([]);
@@ -223,7 +253,8 @@ export default function InventoryPage() {
                             selected={field.value}
                             onSelect={field.onChange}
                             disabled={(date) =>
-                              date > new Date() || date < new Date("1900-01-01")
+                              date > new Date() ||
+                              date < new Date("1900-01-01")
                             }
                           />
                         </PopoverContent>
@@ -250,23 +281,40 @@ export default function InventoryPage() {
                 {fields.map((field, index) => {
                   const status = watchedItems?.[index]?.status || "checking";
                   const isDone = status === "done";
+                  
+                  // CEK DUPLIKAT PER ITEM
+                  const isDuplicate = duplicateIndices.has(index);
 
                   return (
                     <Card
                       key={field.id}
                       className={cn(
-                        "grid grid-cols-12 gap-3 p-4 items-center border shadow-sm transition-all hover:shadow-md",
-                        isDone
-                          ? "bg-emerald-50/40 border-emerald-200"
-                          : "bg-white border-stone-200",
+                        "grid grid-cols-12 gap-3 p-4 items-center border shadow-sm transition-all hover:shadow-md relative",
+                        // Styling Kondisional
+                        isDuplicate 
+                          ? "bg-red-50 border-red-500 border-2" // Style Duplikat (Merah)
+                          : isDone
+                            ? "bg-emerald-50/40 border-emerald-200"
+                            : "bg-white border-stone-200"
                       )}
                     >
+                      {/* ALERT DUPLIKAT (Muncul jika duplikat) */}
+                      {isDuplicate && (
+                        <div className="absolute -top-3 left-4 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center shadow-sm z-10">
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          DUPLIKAT
+                        </div>
+                      )}
+
                       {/* NO */}
                       <div className="col-span-12 md:col-span-1 flex md:block justify-between items-center mb-1 md:mb-0">
                         <span className="md:hidden text-xs font-bold text-stone-400">
                           NO
                         </span>
-                        <div className="font-mono text-xs font-bold bg-stone-100 text-stone-500 rounded-lg w-7 h-7 flex items-center justify-center mx-auto border border-stone-200">
+                        <div className={cn(
+                          "font-mono text-xs font-bold rounded-lg w-7 h-7 flex items-center justify-center mx-auto border",
+                          isDuplicate ? "bg-red-100 text-red-600 border-red-200" : "bg-stone-100 text-stone-500 border-stone-200"
+                        )}>
                           {index + 1}
                         </div>
                       </div>
@@ -282,7 +330,7 @@ export default function InventoryPage() {
                           render={({ field }) => (
                             <FormItem>
                               <div className="relative">
-                                <Search className="absolute left-3 top-2.5 h-4 w-4 text-stone-400" />
+                                <Search className={cn("absolute left-3 top-2.5 h-4 w-4", isDuplicate ? "text-red-400" : "text-stone-400")} />
                                 <FormControl>
                                   <Input
                                     {...field}
@@ -296,11 +344,15 @@ export default function InventoryPage() {
                                     }
                                     value={field.value as string}
                                     placeholder="Cari barang..."
-                                    className="pl-9 h-10 bg-white border-stone-300 focus-visible:ring-amber-500 font-medium text-stone-700"
+                                    className={cn(
+                                      "pl-9 h-10 focus-visible:ring-amber-500 font-medium",
+                                      isDuplicate 
+                                        ? "bg-white border-red-300 text-red-700 placeholder:text-red-300 focus-visible:ring-red-500" 
+                                        : "bg-white border-stone-300 text-stone-700"
+                                    )}
                                     autoComplete="off"
                                   />
                                 </FormControl>
-                                {/* DATALIST DINAMIS PER ROW */}
                                 <datalist id={`product-list-${index}`}>
                                   {filteredProducts.map((prod, i) => (
                                     <option
@@ -315,6 +367,12 @@ export default function InventoryPage() {
                                   ))}
                                 </datalist>
                               </div>
+                              {/* Pesan Error Duplikat di Bawah Input */}
+                              {isDuplicate && (
+                                <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">
+                                  * Barang ini sudah diinput di baris lain
+                                </p>
+                              )}
                               <FormMessage />
                             </FormItem>
                           )}
@@ -384,7 +442,7 @@ export default function InventoryPage() {
                           }
                           render={({ field }) => (
                             <FormItem>
-                              <Select onValueChange={field.onChange}>
+                              <Select onValueChange={field.onChange} value={field.value}>
                                 <FormControl>
                                   <SelectTrigger
                                     className={cn(
@@ -457,15 +515,20 @@ export default function InventoryPage() {
         <CardFooter className="p-4 md:p-6 bg-white border-t border-stone-200 rounded-b-xl shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
           <Button
             onClick={form.handleSubmit(handleGenerateWA)}
-            disabled={hasCheckingItems}
+            disabled={isSubmitDisabled} // Disable jika Check atau Duplikat
             className={cn(
               "w-full h-14 text-lg font-bold shadow-md transition-all",
-              hasCheckingItems
+              isSubmitDisabled
                 ? "bg-stone-200 text-stone-400 cursor-not-allowed"
                 : "bg-amber-700 hover:bg-amber-800 text-white hover:shadow-lg",
             )}
           >
-            {hasCheckingItems ? (
+            {hasDuplicates ? (
+              <>
+                <AlertTriangle className="mr-2 h-5 w-5 animate-pulse text-red-500" />{" "}
+                <span className="text-red-500">Perbaiki Duplikat Dulu...</span>
+              </>
+            ) : hasCheckingItems ? (
               <>
                 <AlertCircle className="mr-2 h-5 w-5 animate-pulse" />{" "}
                 Selesaikan Pengecekan...
