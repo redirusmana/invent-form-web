@@ -13,8 +13,8 @@ import {
   Calendar as CalendarIcon,
   CheckCircle2,
   AlertCircle,
+  Package,
   AlertTriangle,
-  Hammer,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -51,54 +51,29 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import productsData from "@/app/data/products.json";
 
 // --- DATA SOURCE ---
-import generalProductsData from "@/app/data/all-products.json";
 
-// Opsi Satuan
-const UNIT_OPTIONS = [
-  "Pcs", // Satuan umum
-  "Btg", // Batang (Besi, Pipa, Lis Kayu)
-  "Lbr", // Lembar (Triplek, GRC, Seng, Asbes)
-  "Sak", // Alternatif penulisan Zak (opsional)
-  "Kg", // Paku, Kawat, Cat Kiloan
-  "Ons", // Paku eceran kecil (opsional)
-  "Mtr", // Meter (Kabel, Selang, Plastik Cor)
-  "Rol", // Kabel utuh, Selang utuh
-  "Dus", // Keramik, Granit, Paku Dos
-  "Kotak", // Alternatif Dus / Baut Box
-  "Klg", // Kaleng (Cat minyak, Lem, Thinner)
-  "Ltr", // Liter (Thinner, Spiritus, Obat Cor)
-  "Galon", // Cat Tembok 5kg
-  "Pail", // Cat Tembok Besar 25kg
-  "Set", // Kunci Pintu, Closet
-  "Psg", // Pasang (Engsel, Sarung Tangan)
-  "Ikat", // Kawat bendrat, Besi ulir (jika dijual per ikat)
-  "Bks", // Bungkus (Lem sachet, Semen warna)
-  "Pack", // Sekrup, Fisher
-  "Bal", // Kawat, Karung
-  "Karung", // Pasir/Batu eceran
-];
-
-type GeneralItem = {
+type InventoryItem = {
   name: string;
-  stock: string;
-  unit: string;
+  boxes: string;
+  units: string;
   status: "checking" | "done";
 };
 
-type GeneralFormValues = {
+type InventoryFormValues = {
   date: Date;
-  items: GeneralItem[];
+  items: InventoryItem[];
 };
 
-export default function GeneralStockPage() {
-  const PRODUCT_LIST = generalProductsData;
+export default function InventoryPage() {
+  const PRODUCT_LIST = productsData;
 
-  const form = useForm<GeneralFormValues>({
+  const form = useForm<InventoryFormValues>({
     defaultValues: {
       date: new Date(),
-      items: [{ name: "", stock: "0", unit: "Pcs", status: "checking" }],
+      items: [{ name: "", boxes: "0", units: "", status: "checking" }],
     },
     mode: "onChange",
   });
@@ -113,7 +88,6 @@ export default function GeneralStockPage() {
     name: "items",
   });
 
-  // --- LOGIC DUPLIKAT ---
   const duplicateIndices = useMemo(() => {
     const indices = new Set<number>();
     const nameMap = new Map<string, number[]>();
@@ -121,7 +95,9 @@ export default function GeneralStockPage() {
     watchedItems?.forEach((item, index) => {
       const name = item.name?.trim().toLowerCase();
       if (name) {
-        if (!nameMap.has(name)) nameMap.set(name, []);
+        if (!nameMap.has(name)) {
+          nameMap.set(name, []);
+        }
         nameMap.get(name)?.push(index);
       }
     });
@@ -131,15 +107,53 @@ export default function GeneralStockPage() {
         indexes.forEach((idx) => indices.add(idx));
       }
     });
+
     return indices;
   }, [watchedItems]);
 
   const hasDuplicates = duplicateIndices.size > 0;
   const hasCheckingItems =
     watchedItems?.some((item) => item.status === "checking") ?? false;
+
   const isSubmitDisabled = hasCheckingItems || hasDuplicates;
 
-  // --- LOGIC SEARCH ---
+  const handleGenerateWA = (data: InventoryFormValues) => {
+    if (isSubmitDisabled) return;
+
+    const validItems = data.items.filter(
+      (item) => item.name && item.name.trim() !== "",
+    );
+    if (validItems.length === 0) {
+      alert("Isi minimal satu barang!");
+      return;
+    }
+
+    const formattedDate = format(data.date, "dd MMMM yyyy", { locale: id });
+    let text = `*Laporan ${formattedDate}* 📦\n------------------------\n\n`;
+
+    validItems.forEach((item, index) => {
+      const productInfo = PRODUCT_LIST.find((p) => p.name === item.name);
+      const qtyInfo =
+        productInfo && productInfo.qty > 0
+          ? `(Isi: ${productInfo.qty}/Dus)`
+          : "";
+
+      text += `*${index + 1}. ${item.name}*\n`;
+      text += `   📦 Dus: ${item.boxes} ${qtyInfo}\n`;
+      text += `   ⚙️ PCS: ${item.units || "-"}\n\n`;
+    });
+
+    window.open(
+      `https://wa.me/?text=${encodeURIComponent(text)}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  };
+
+  const handleReset = () => {
+    if (confirm("Reset semua data?")) form.reset();
+  };
+
   const [filteredProducts, setFilteredProducts] = React.useState<
     typeof PRODUCT_LIST
   >([]);
@@ -161,41 +175,6 @@ export default function GeneralStockPage() {
     }
   };
 
-  // --- LOGIC WHATSAPP ---
-  const handleGenerateWA = (data: GeneralFormValues) => {
-    if (isSubmitDisabled) return;
-
-    const validItems = data.items.filter(
-      (item) => item.name && item.name.trim() !== "",
-    );
-    if (validItems.length === 0) {
-      alert("Isi minimal satu barang!");
-      return;
-    }
-
-    const formattedDate = format(data.date, "dd MMMM yyyy", { locale: id });
-
-    // Header WA
-    let text = `*Stok Barang* 📦\n`;
-    text += `Tanggal: ${formattedDate}\n`;
-    text += `------------------------\n\n`;
-
-    validItems.forEach((item, index) => {
-      text += `*${index + 1}. ${item.name}*\n`;
-      text += `   📦 Stok: ${item.stock} ${item.unit}\n\n`;
-    });
-
-    window.open(
-      `https://wa.me/?text=${encodeURIComponent(text)}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-  };
-
-  const handleReset = () => {
-    if (confirm("Reset semua data?")) form.reset();
-  };
-
   const renderButtonContent = () => {
     if (hasDuplicates) {
       return (
@@ -205,6 +184,7 @@ export default function GeneralStockPage() {
         </>
       );
     }
+
     if (hasCheckingItems) {
       return (
         <>
@@ -213,6 +193,7 @@ export default function GeneralStockPage() {
         </>
       );
     }
+
     return (
       <>
         <Send className="mr-2 h-5 w-5" /> Kirim Laporan WhatsApp
@@ -227,14 +208,14 @@ export default function GeneralStockPage() {
         <CardHeader className="flex flex-row items-center justify-between p-6 bg-[#4a403a] text-[#fefce8] rounded-t-xl border-b border-[#5d534a]">
           <div className="flex items-center gap-4">
             <div className="bg-amber-500/20 p-3 rounded-xl border border-amber-500/30 flex items-center justify-center shadow-inner">
-              <Hammer className="h-8 w-8 text-amber-400" />
+              <Package className="h-8 w-8 text-amber-400" />
             </div>
             <div className="flex flex-col gap-1">
               <CardTitle className="text-2xl md:text-3xl font-bold tracking-wide text-amber-50 leading-none">
-                Stok Barang Umum
+                Stok Gudang
               </CardTitle>
               <CardDescription className="text-amber-200/70 text-sm font-medium leading-tight">
-                Semen, Besi, Cat, dan Material Lainnya
+                Input data harian material toko
               </CardDescription>
             </div>
           </div>
@@ -243,6 +224,7 @@ export default function GeneralStockPage() {
             size="icon"
             onClick={handleReset}
             className="text-stone-400 hover:text-white hover:bg-[#5d534a] rounded-full"
+            title="Reset Form"
           >
             <RotateCcw className="h-5 w-5" />
           </Button>
@@ -291,7 +273,9 @@ export default function GeneralStockPage() {
                             mode="single"
                             selected={field.value}
                             onSelect={field.onChange}
-                            disabled={(date) => date > new Date()}
+                            disabled={(date) =>
+                              date > new Date() || date < new Date("1900-01-01")
+                            }
                           />
                         </PopoverContent>
                       </Popover>
@@ -303,11 +287,10 @@ export default function GeneralStockPage() {
 
               <Separator className="bg-stone-200" />
 
-              {/* TABLE HEADER (Desktop) */}
               <div className="hidden md:grid grid-cols-12 gap-3 px-4 text-xs font-bold text-stone-500 uppercase tracking-wider">
                 <div className="col-span-1 text-center">#</div>
                 <div className="col-span-4">Nama Barang</div>
-                <div className="col-span-2 text-center">Stok</div>
+                <div className="col-span-2 text-center">Dus</div>
                 <div className="col-span-2 text-center">Satuan</div>
                 <div className="col-span-2 text-center">Status</div>
                 <div className="col-span-1 text-center">Hapus</div>
@@ -330,10 +313,10 @@ export default function GeneralStockPage() {
                         isDuplicate && "bg-red-50 border-red-500 border-2",
                       )}
                     >
-                      {/* ALERT DUPLIKAT */}
                       {isDuplicate && (
                         <div className="absolute -top-3 left-4 bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center shadow-sm z-10">
-                          <AlertTriangle className="w-3 h-3 mr-1" /> DUPLIKAT
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          DUPLIKAT
                         </div>
                       )}
 
@@ -359,7 +342,7 @@ export default function GeneralStockPage() {
                         <FormField
                           control={form.control}
                           name={
-                            `items.${index}.name` as Path<GeneralFormValues>
+                            `items.${index}.name` as Path<InventoryFormValues>
                           }
                           rules={{ required: "Nama barang wajib diisi" }}
                           render={({ field }) => (
@@ -376,8 +359,7 @@ export default function GeneralStockPage() {
                                 <FormControl>
                                   <Input
                                     {...field}
-                                    value={field.value as string}
-                                    list={`general-product-list-${index}`}
+                                    list={`product-list-${index}`}
                                     onChange={(e) => {
                                       field.onChange(e);
                                       handleSearchChange(e, index);
@@ -385,37 +367,49 @@ export default function GeneralStockPage() {
                                     onFocus={(e) =>
                                       handleSearchChange(e, index)
                                     }
-                                    placeholder="Cari semen, besi..."
+                                    value={field.value as string}
+                                    placeholder="Cari barang..."
                                     className={cn(
                                       "pl-9 h-10 focus-visible:ring-amber-500 font-medium",
                                       isDuplicate
-                                        ? "bg-white border-red-300 text-red-700"
+                                        ? "bg-white border-red-300 text-red-700 placeholder:text-red-300 focus-visible:ring-red-500"
                                         : "bg-white border-stone-300 text-stone-700",
                                     )}
                                     autoComplete="off"
                                   />
                                 </FormControl>
-                                <datalist id={`general-product-list-${index}`}>
+                                <datalist id={`product-list-${index}`}>
                                   {filteredProducts.map((prod, i) => (
                                     <option
                                       key={prod.name + i}
                                       value={prod.name}
+                                      label={
+                                        prod.qty > 0
+                                          ? `📦 Isi: ${prod.qty}`
+                                          : undefined
+                                      }
                                     />
                                   ))}
                                 </datalist>
                               </div>
+                              {/* Pesan Error Duplikat di Bawah Input */}
+                              {isDuplicate && (
+                                <p className="text-[10px] text-red-500 font-bold mt-1 ml-1">
+                                  * Barang ini sudah diinput di baris lain
+                                </p>
+                              )}
                               <FormMessage />
                             </FormItem>
                           )}
                         />
                       </div>
 
-                      {/* STOK (Angka) */}
+                      {/* DUS */}
                       <div className="col-span-6 md:col-span-2">
                         <FormField
                           control={form.control}
                           name={
-                            `items.${index}.stock` as Path<GeneralFormValues>
+                            `items.${index}.boxes` as Path<InventoryFormValues>
                           }
                           render={({ field }) => (
                             <FormItem>
@@ -423,12 +417,12 @@ export default function GeneralStockPage() {
                                 <div className="relative">
                                   <Input
                                     {...field}
-                                    value={field.value as string}
                                     inputMode="numeric"
+                                    value={field.value as string}
                                     className="h-10 text-center bg-white border-stone-300 focus-visible:ring-amber-500 font-bold text-stone-700"
                                   />
                                   <span className="absolute right-3 top-2.5 text-[10px] text-stone-400 font-bold pointer-events-none">
-                                    JML
+                                    BOX
                                   </span>
                                 </div>
                               </FormControl>
@@ -437,36 +431,28 @@ export default function GeneralStockPage() {
                         />
                       </div>
 
-                      {/* SATUAN (Select Option) */}
+                      {/* SATUAN */}
                       <div className="col-span-6 md:col-span-2">
                         <FormField
                           control={form.control}
                           name={
-                            `items.${index}.unit` as Path<GeneralFormValues>
+                            `items.${index}.units` as Path<InventoryFormValues>
                           }
                           render={({ field }) => (
                             <FormItem>
-                              <Select
-                                onValueChange={field.onChange}
-                                value={field.value as string}
-                              >
-                                <FormControl>
-                                  <SelectTrigger className="font-bold bg-white border-stone-300 text-stone-700 h-10">
-                                    <SelectValue placeholder="Satuan" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {UNIT_OPTIONS.map((unit) => (
-                                    <SelectItem
-                                      key={unit}
-                                      value={unit}
-                                      className="font-medium"
-                                    >
-                                      {unit}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <FormControl>
+                                <div className="relative">
+                                  <Input
+                                    {...field}
+                                    value={field.value as string}
+                                    className="h-10 text-center bg-white border-stone-300 focus-visible:ring-amber-500 font-bold text-stone-700"
+                                    placeholder="-"
+                                  />
+                                  <span className="absolute right-3 top-2.5 text-[10px] text-stone-400 font-bold pointer-events-none">
+                                    PCS
+                                  </span>
+                                </div>
+                              </FormControl>
                             </FormItem>
                           )}
                         />
@@ -477,7 +463,7 @@ export default function GeneralStockPage() {
                         <FormField
                           control={form.control}
                           name={
-                            `items.${index}.status` as Path<GeneralFormValues>
+                            `items.${index}.status` as Path<InventoryFormValues>
                           }
                           render={({ field }) => (
                             <FormItem>
@@ -490,8 +476,8 @@ export default function GeneralStockPage() {
                                     className={cn(
                                       "font-bold uppercase text-xs h-10",
                                       field.value === "done"
-                                        ? "bg-emerald-600 text-white border-emerald-600"
-                                        : "bg-amber-100 text-amber-700 border-amber-300",
+                                        ? "bg-emerald-600 text-white border-emerald-600 focus:ring-emerald-500"
+                                        : "bg-amber-100 text-amber-700 border-amber-300 focus:ring-amber-500",
                                     )}
                                   >
                                     <SelectValue placeholder="Status" />
@@ -525,6 +511,7 @@ export default function GeneralStockPage() {
                           size="icon"
                           onClick={() => remove(index)}
                           className="text-stone-400 hover:text-red-600 hover:bg-red-50"
+                          title="Hapus Baris"
                         >
                           <Trash2 className="h-5 w-5" />
                         </Button>
@@ -540,14 +527,14 @@ export default function GeneralStockPage() {
                 onClick={() =>
                   append({
                     name: "",
-                    stock: "0",
-                    unit: "Pcs",
+                    boxes: "0",
+                    units: "",
                     status: "checking",
                   })
                 }
                 className="w-full border-dashed border-2 border-stone-300 text-stone-500 hover:text-amber-700 hover:border-amber-400 hover:bg-white h-14 bg-[#fafaf9]"
               >
-                <Plus className="mr-2 h-5 w-5" /> Tambah Barang
+                <Plus className="mr-2 h-5 w-5" /> Tambah Item Baru
               </Button>
             </form>
           </Form>
